@@ -19,6 +19,8 @@ import util
 import shutil
 import serial
 
+from tornado_cors import CorsMixin
+
 #
 class web_dwc2:
 
@@ -151,7 +153,34 @@ class web_dwc2:
 		#dbg = threading.Thread( target=debug_console, args=(self,) )
 		#dbg.start()
 	# the main webpage to serve the client browser itself
-	class dwc_handler(tornado.web.RequestHandler):
+	class dwc_handler(CorsMixin, tornado.web.RequestHandler):
+		
+		# Value for the Access-Control-Allow-Origin header.
+		# Default: None (no header).
+		CORS_ORIGIN = '*'
+		
+		# Value for the Access-Control-Allow-Headers header.
+		# Default: None (no header).
+		CORS_HEADERS = 'Content-Type'
+		
+		# Value for the Access-Control-Allow-Methods header.
+		# Default: Methods defined in handler class.
+		# None means no header.
+		CORS_METHODS = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
+
+		# Value for the Access-Control-Allow-Credentials header.
+		# Default: None (no header).
+		# None means no header.
+		CORS_CREDENTIALS = True
+		
+		# Value for the Access-Control-Max-Age header.
+		# Default: 86400.
+		# None means no header.
+		CORS_MAX_AGE = 21600
+
+		# Value for the Access-Control-Expose-Headers header.
+		# Default: None
+		CORS_EXPOSE_HEADERS = 'Location, X-WP-TotalPages'
 
 		def initialize(self, p_):
 			self.web_root = p_
@@ -179,7 +208,34 @@ class web_dwc2:
 				logging.warn( "DWC2 - unhandled request in dwc_handler: " + self.request.uri + " redirecting to index.")
 				index()
 	#for handling request dwc2 is sending
-	class req_handler(tornado.web.RequestHandler):
+	class req_handler(CorsMixin, tornado.web.RequestHandler):
+		
+		# Value for the Access-Control-Allow-Origin header.
+		# Default: None (no header).
+		CORS_ORIGIN = '*'
+		
+		# Value for the Access-Control-Allow-Headers header.
+		# Default: None (no header).
+		CORS_HEADERS = 'Content-Type'
+		
+		# Value for the Access-Control-Allow-Methods header.
+		# Default: Methods defined in handler class.
+		# None means no header.
+		CORS_METHODS = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
+
+		# Value for the Access-Control-Allow-Credentials header.
+		# Default: None (no header).
+		# None means no header.
+		CORS_CREDENTIALS = True
+		
+		# Value for the Access-Control-Max-Age header.
+		# Default: 86400.
+		# None means no header.
+		CORS_MAX_AGE = 21600
+
+		# Value for the Access-Control-Expose-Headers header.
+		# Default: None
+		CORS_EXPOSE_HEADERS = 'Location, X-WP-TotalPages'
 
 		def initialize(self, web_dwc2):
 
