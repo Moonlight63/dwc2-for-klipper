@@ -331,7 +331,7 @@ class web_dwc2:
 		repl_ = {
 			"axisMins": [ x for x in ax_[0] ],
 			"axisMaxes": [ x for x in ax_[1] ],
-			"accelerations": [ max_acc for x in ax_[0] ],
+			"accelerations": [ max_acc for x in ax_[0] ] + [ ex_.instant_corner_v for ex_ in extru_ if ex_ is not None ],
 			"currents": [ 0 for x in ax_[0] ] + [ 0 for ex_ in extru_ if ex_ is not None ] ,	#	can we fetch data from tmc drivers here ?
 			"firmwareElectronics": util.get_cpu_info(),
 			"firmwareName": "Klipper",
@@ -443,10 +443,19 @@ class web_dwc2:
 				"date": datetime.datetime.fromtimestamp(os.stat(el_path).st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
 			})
 
+		#	add KlipperMacros Folder as virtual files
+		if "/macros" == web_.get_argument('dir').replace("0:", ""):
+			if any(x['name'] == "KlipperMacros" for x in repl_['files']) == False:
+				repl_['files'].append({
+					"reply": any(x['name'] == "KlipperMacros" for x in repl_['files']),
+					"type": "d" ,
+					"name": "KlipperMacros" ,
+					"size": 4096 ,
+					"date": datetime.datetime.fromtimestamp(os.stat(self.klipper_config).st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+				})
 		#	add klipper macros as virtual files
-		if "/macros" in web_.get_argument('dir').replace("0:", ""):
+		elif "/macros/KlipperMacros" == web_.get_argument('dir').replace("0:", ""):
 			for macro_ in self.klipper_macros:
-
 				repl_['files'].append({
 					"type": "f" ,
 					"name": macro_ ,
@@ -599,27 +608,46 @@ class web_dwc2:
 				"machine": [] ,
 				"extr": []
 			},
-			"speeds": {},
+			"speeds": {
+				"requested": 0,
+				"top": 	0 #	not available on klipepr
+			},
 			"sensors": {
 				"fanRPM": 0
 			},
 			"params": {
+				"atxPower": 0,
 				"fanPercent": [] ,
 				"extrFactors": []
 			} ,
 			"temps": {
 				"bed": { "active": 0 },
 				"state": [],
-				"extra": [{}],
+				"extra": [
+					{
+						"name": "*MCU",
+						"temp": 0
+					}
+				],
 				"current": [],
 				"tools": {
 					"active": []
 				},
 				"names": []
 			} ,
+			"coldExtrudeTemp": 0,
+			"coldRetractTemp": 0,
+			"compensation": "None",
+			"probe": {
+				"threshold": 100,
+				"height": 0,
+				"type": 8
+			},
+			"firmwareName": "Klipper",
 			"probe": {} ,
 			"axisNames": "" ,
 			"tools": [] ,
+			"currentTool": self.current_tool,
 			"volumes": 1,
 			"mountedVolumes": 1 ,
 			"name": self.printername
@@ -676,7 +704,8 @@ class web_dwc2:
 					"current": bed_stats['actual'] ,
 					"active": bed_stats['target'] ,
 					"state": bed_stats['state'] ,
-					"heater": 0
+					"heater": 0,
+					"standby": 0
 				},
 				#"chamber": {
 				#	"current": 19.5,
@@ -783,7 +812,8 @@ class web_dwc2:
 					"current": bed_stats['actual'] ,
 					"active": bed_stats['target'] ,
 					"state": bed_stats['state'] ,
-					"heater": 0
+					"heater": 0,
+					"standby": 0
 				},
 				#"chamber": {
 				#	"current": 19.6,
