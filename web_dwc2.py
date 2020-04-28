@@ -228,8 +228,8 @@ class web_dwc2:
 				return
 			#	filehandling - dircreation
 			elif "rr_mkdir" in self.request.uri:
-				self.web_dwc2.rr_mkdir(self)
-				return
+				self.repl_ = self.web_dwc2.rr_mkdir(self)
+				#return
 			elif "rr_move" in self.request.uri:
 				self.repl_ = self.web_dwc2.rr_move(self)
 			#	gcode reply
@@ -583,10 +583,13 @@ class web_dwc2:
 		path_ = self.sdpath + web_.get_argument('dir').replace("0:", "").replace(' ', '_')
 
 		if not os.path.exists(path_):
-			os.makedirs(path_)
+			try:
+				os.makedirs(path_)
+			except Exception as e:
+				return {'err': e}
 			return {'err': 0}
 
-		return {'err': 1}
+		return {'err': "Path already exists"}
 	#	dwc rr_reply - fetces gcodes
 	def rr_reply(self, web_):
 		while self.gcode_reply:
