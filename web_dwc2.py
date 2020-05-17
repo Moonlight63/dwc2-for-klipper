@@ -51,7 +51,7 @@ class web_dwc2:
 		self.sdcard = self.printer.lookup_object('virtual_sdcard', None)
 		self.configfile = self.printer.lookup_object('configfile').read_main_config()
 		self.stepper_enable = self.printer.load_object(config, "stepper_enable")
-		
+
 		#	gcode execution needs
 		self.gcode_queue = []	#	containing gcode user pushes from dwc2
 		self.gcode_reply = []	#	contains the klippy replys
@@ -1180,7 +1180,14 @@ class web_dwc2:
 		self.sdcard.cmd_M24(gcmd)
 	#	rrf M32 - start print from sdcard
 	def cmd_M32(self, gcmd):
-		self.sdcard.cmd_M23(gcmd)
+		orig = gcmd.get_commandline()
+		filename = orig.split()[1]
+		gcodesfilename = 'gcodes/{}'.format(filename)
+		full_path = "/".join([self.sdpath, gcodesfilename])
+		if os.path.exists(full_path):
+			self.sdcard.cmd_M23(self.parse_params("M23 {}".format(gcodesfilename)))
+		else:
+			self.sdcard.cmd_M23(gcmd)
 		self.file_infos['running_file'] = self.rr_fileinfo('knackwurst').result()
 		self.cmd_M24(gcmd)
 	#	rrf run macro
@@ -1193,7 +1200,7 @@ class web_dwc2:
 			#	now we know its no macro file
 			klipma = original.split("/")[-1].replace("\"", "")
 			if klipma in self.klipper_macros:
-				return self.parse_params(klipma)
+				return self.gcode_queue.append(self.parse_params(klipma))
 			else:
 				return None
 		else:
@@ -1207,25 +1214,26 @@ class web_dwc2:
 	#	rrf M106 translation to klipper scale
 	def cmd_M106(self, gcmd):
 		params = gcmd.get_command_parameters()
-
 		if float(params['S']) < .05:
-			gcmd._command = "M117"
+			gcmd._command = "M107"
 			gcmd._params = {}
 		else:
 			gcmd._params['S'] = str(int( float(params['S']) * 255 ))
-		handler = self.gcode.gcode_handlers.get("M117", None)
+		handler = self.gcode.gcode_handlers.get(gcmd.get_command(), None)
 		handler(gcmd)
 	#	fo ecxecuting m112 now!
 	def cmd_M112(self, gcmd):
 		self.printer.invoke_shutdown('Emergency Stop from DWC 2')
 	#	save states butttons
 	def cmd_M120(self, gcmd):
-		gcmd._params = {'NAME': 'DWC_BOTTON'}
-		self.gcode.cmd_SAVE_GCODE_STATE(gcmd)
+		gcmd = self.parse_params('SAVE_GCODE_STATE NAME=DWC')
+		handler = self.gcode.gcode_handlers.get("SAVE_GCODE_STATE", self.gcode.cmd_default)
+		handler(gcmd)
 	#	restore states butttons
 	def cmd_M121(self, gcmd):
-		gcmd._params = {'NAME': 'DWC_BOTTON', 'MOVE': 0}
-		self.gcode.cmd_RESTORE_GCODE_STATE(gcmd)
+		gcmd = self.parse_params('RESTORE_GCODE_STATE NAME=DWC MOVE=0')
+		handler = self.gcode.gcode_handlers.get("RESTORE_GCODE_STATE", self.gcode.cmd_default)
+		handler(gcmd)
 	#	set heatbed, now handled when not defined in cmd_default
 	#	setting babysteps:
 	def cmd_M290(self, gcmd):
@@ -1235,7 +1243,8 @@ class web_dwc2:
 
 		mm_step = gcmd.get_float('Z', None)
 		if not mm_step: mm_step = gcmd.get_float('S', None)	#	DWC 1 workarround
-		gcmd2 = self.parse_params('SET_GCODE_OFFSET Z_ADJUST=' + str(mm_step) + ' MOVE=1')
+                self.set_message(mm_step)
+		gcmd2 = self.parse_params('SET_GCODE_OFFSET Z_ADJUST' + str(mm_step) + ' MOVE1')
 		self.gcode.cmd_SET_GCODE_OFFSET(gcmd2)
 		self.gcode_reply.append('Z adjusted by %0.2f' % mm_step)
 
@@ -1297,7 +1306,6 @@ class web_dwc2:
 		while self.gcode_queue:
 			gcmd = self.gcode_queue.pop(0)
 			command = gcmd.get_command()
-			
 			if command in ack_needers or command in self.klipper_macros:
 				gcmd._need_ack = True
 			try:
@@ -1329,7 +1337,7 @@ class web_dwc2:
 				self.gcode_queue.append(self.parse_params(line))
 
 		elif 'PAUSE_PRINT' in self.klipper_macros:
-			self.gcode_queue.append(parse_params('PAUSE_PRINT'))
+			self.gcode_queue.append(self.parse_params('PAUSE_PRINT'))
 
 		if self.gcode_queue:
 			self.reactor.register_callback(self.gcode_reactor_callback)
