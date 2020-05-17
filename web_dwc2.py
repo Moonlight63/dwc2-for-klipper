@@ -19,6 +19,8 @@ import util
 import shutil
 import serial
 
+from tornado_cors import CorsMixin
+
 #
 class web_dwc2:
 
@@ -151,7 +153,33 @@ class web_dwc2:
 		#dbg = threading.Thread( target=debug_console, args=(self,) )
 		#dbg.start()
 	# the main webpage to serve the client browser itself
-	class dwc_handler(tornado.web.RequestHandler):
+	class dwc_handler(CorsMixin, tornado.web.RequestHandler):
+		# Value for the Access-Control-Allow-Origin header.
+		# Default: None (no header).
+		CORS_ORIGIN = '*'
+		
+		# Value for the Access-Control-Allow-Headers header.
+		# Default: None (no header).
+		CORS_HEADERS = 'Content-Type'
+		
+		# Value for the Access-Control-Allow-Methods header.
+		# Default: Methods defined in handler class.
+		# None means no header.
+		CORS_METHODS = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
+
+		# Value for the Access-Control-Allow-Credentials header.
+		# Default: None (no header).
+		# None means no header.
+		CORS_CREDENTIALS = True
+		
+		# Value for the Access-Control-Max-Age header.
+		# Default: 86400.
+		# None means no header.
+		CORS_MAX_AGE = 21600
+
+		# Value for the Access-Control-Expose-Headers header.
+		# Default: None
+		CORS_EXPOSE_HEADERS = 'Location, X-WP-TotalPages'
 
 		def initialize(self, p_):
 			self.web_root = p_
@@ -179,7 +207,37 @@ class web_dwc2:
 				logging.warn( "DWC2 - unhandled request in dwc_handler: " + self.request.uri + " redirecting to index.")
 				index()
 	#for handling request dwc2 is sending
-	class req_handler(tornado.web.RequestHandler):
+	class req_handler(CorsMixin, tornado.web.RequestHandler):
+		# Value for the Access-Control-Allow-Origin header.
+		# Default: None (no header).
+		CORS_ORIGIN = '*'
+		
+		# Value for the Access-Control-Allow-Headers header.
+		# Default: None (no header).
+		CORS_HEADERS = 'Content-Type'
+		
+		# Value for the Access-Control-Allow-Methods header.
+		# Default: Methods defined in handler class.
+		# None means no header.
+		CORS_METHODS = 'GET, PUT, POST, DELETE, HEAD, OPTIONS'
+
+		# Value for the Access-Control-Allow-Credentials header.
+		# Default: None (no header).
+		# None means no header.
+		CORS_CREDENTIALS = True
+		
+		# Value for the Access-Control-Max-Age header.
+		# Default: 86400.
+		# None means no header.
+		CORS_MAX_AGE = 21600
+
+		# Value for the Access-Control-Expose-Headers header.
+		# Default: None
+		CORS_EXPOSE_HEADERS = 'Location, X-WP-TotalPages'
+
+		# def set_default_headers(self):
+		# 	print "setting headers!!!"
+		# 	self.set_header("Access-Control-Allow-Origin", "*")
 
 		def initialize(self, web_dwc2):
 
@@ -228,8 +286,7 @@ class web_dwc2:
 				return
 			#	filehandling - dircreation
 			elif "rr_mkdir" in self.request.uri:
-				self.web_dwc2.rr_mkdir(self)
-				return
+				self.repl_ = self.web_dwc2.rr_mkdir(self)
 			elif "rr_move" in self.request.uri:
 				self.repl_ = self.web_dwc2.rr_move(self)
 			#	gcode reply
@@ -258,6 +315,10 @@ class web_dwc2:
 					elif t_ == 3:
 						self.web_dwc2.rr_status_3()
 						self.repl_ = self.web_dwc2.status_3
+					
+					#elif t_ == 0:
+				#		self.web_dwc2.rr_status_0()
+				#		self.repl_ = self.web_dwc2.status_0	
 
 					else:
 						logging.warn(" DWC2 - error in rr_status \n" + str(t_) )
@@ -323,15 +384,14 @@ class web_dwc2:
 			extru_ = []
 		ax_ = [[],[]]
 		for r_ in rails_:
-
 			min_pos, max_pos = r_.get_range()
 			ax_[0].append(min_pos)
 			ax_[1].append(max_pos)
 
 		repl_ = {
-			"axisMins": [ x for x in ax_[0] ],
+			"axisMins": [ x for x in ax_[0] if self.klipper_ready ],
 			"axisMaxes": [ x for x in ax_[1] ],
-			"accelerations": [ max_acc for x in ax_[0] ],
+			"accelerations": [ max_acc for x in ax_[0] ] + [ ex_.instant_corner_v for ex_ in extru_ if ex_ is not None ],
 			"currents": [ 0 for x in ax_[0] ] + [ 0 for ex_ in extru_ if ex_ is not None ] ,	#	can we fetch data from tmc drivers here ?
 			"firmwareElectronics": util.get_cpu_info(),
 			"firmwareName": "Klipper",
@@ -444,7 +504,18 @@ class web_dwc2:
 			})
 
 		#	add klipper macros as virtual files
-		if "/macros" in web_.get_argument('dir').replace("0:", ""):
+		if "/macros" == web_.get_argument('dir').replace("0:", ""):
+			if any(x['name'] == "KlipperMacros" for x in repl_['files']) == False:
+				repl_['files'].append({
+					"reply": any(x['name'] == "KlipperMacros" for x in repl_['files']),
+					"type": "d" ,
+					"name": "KlipperMacros" ,
+					"size": 4096 ,
+					"date": datetime.datetime.fromtimestamp(os.stat(self.klipper_config).st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+				})
+
+		#	add klipper macros as virtual files
+		elif "/macros/KlipperMacros" == web_.get_argument('dir').replace("0:", ""):
 			for macro_ in self.klipper_macros:
 
 				repl_['files'].append({
@@ -570,14 +641,16 @@ class web_dwc2:
 		return {"err": 0}
 	#	dwc rr_mkdir
 	def rr_mkdir(self, web_):
-
 		path_ = self.sdpath + web_.get_argument('dir').replace("0:", "").replace(' ', '_')
-
 		if not os.path.exists(path_):
-			os.makedirs(path_)
+			try:
+				os.makedirs(path_)
+			except Exception as e:
+				return {'err': e}
+
 			return {'err': 0}
 
-		return {'err': 1}
+		return {'err': "Path already exists"}
 	#	dwc rr_reply - fetces gcodes
 	def rr_reply(self, web_):
 		while self.gcode_reply:
@@ -591,34 +664,66 @@ class web_dwc2:
 			self.status_0.update({ "output": {} })
 			self.message = None
 
+		try:
+			max_acc = self.toolhead.max_accel
+			max_vel = self.toolhead.max_velocity
+			rails_ = self.kinematics.rails
+			extru_ = self.extruders
+		except Exception as e:
+			max_acc = []
+			max_vel = []
+			rails_ = []
+			extru_ = []
+
 		self.status_0.update({
 			"status": self.get_printer_status(),
 			"seq": len(self.gcode_reply),
 			"coords": {
-				"xyz": [] ,
-				"machine": [] ,
-				"extr": []
+				"xyz": [],#[0 for r_ in rails_ if r_ is not None],#[ 0, 0, 0 ] ,
+				"axesHomed": [],#[False for r_ in rails_ if r_ is not None],
+				"machine": [],#[ 0, 0, 0 ] ,
+				"extr": []#[ 0 for ex_ in extru_ if ex_ is not None ]
 			},
-			"speeds": {},
+			"speeds": {
+				"requested": 0,
+				"top": 	0 #	not available on klipepr
+			},
 			"sensors": {
 				"fanRPM": 0
 			},
 			"params": {
+				"atxPower": 0,
 				"fanPercent": [] ,
 				"extrFactors": []
 			} ,
 			"temps": {
 				"bed": { "active": 0 },
-				"extra": [{}],
+				"state": [],
+				"extra": [
+					{
+						"name": "*MCU",
+						"temp": 0
+					}
+				],
 				"current": [],
 				"tools": {
 					"active": []
 				},
 				"names": []
 			} ,
-			"probe": {} ,
-			"axisNames": "" ,
+			"coldExtrudeTemp": 0,
+			"coldRetractTemp": 0,
+			"compensation": "None",
+			"probe": {
+				"threshold": 100,
+				"height": 0,
+				"type": 8
+			},
+			"firmwareName": "Klipper",
+			"axisNames": "XYZ" ,
+			"geometry": self.kin_name,
 			"tools": [] ,
+			"currentTool": self.current_tool,
 			"volumes": 1,
 			"mountedVolumes": 1 ,
 			"name": self.printername
@@ -675,7 +780,8 @@ class web_dwc2:
 					"current": bed_stats['actual'] ,
 					"active": bed_stats['target'] ,
 					"state": bed_stats['state'] ,
-					"heater": 0
+					"heater": 0,
+					"standby": 0
 				},
 				#"chamber": {
 				#	"current": 19.5,
@@ -782,7 +888,8 @@ class web_dwc2:
 					"current": bed_stats['actual'] ,
 					"active": bed_stats['target'] ,
 					"state": bed_stats['state'] ,
-					"heater": 0
+					"heater": 0,
+					"standby": 0
 				},
 				#"chamber": {
 				#	"current": 19.6,
@@ -832,6 +939,7 @@ class web_dwc2:
 					"drives": [ extr_stat.index(ex_) ] ,
 					"axisMap": [ 1 ],
 					"fans": 1,
+					#"acceleration": ex_['acceleration'],
 					"filament": "",
 					"offsets": [ 0, 0, 0 ]
 				} for ex_ in extr_stat ]
@@ -1404,6 +1512,7 @@ class web_dwc2:
 					'actual': status['temperature'] ,
 					'target': status['target'] ,
 					'state': 0 if status['target'] < 20 else 2 ,
+					#'acceleration': ex_.instant_corner_v,
 					'min_extrude_temp': ex_.heater.min_extrude_temp ,
 					'max_temp': ex_.heater.max_temp
 				}
